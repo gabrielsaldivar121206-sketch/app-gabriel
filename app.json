@@ -22,7 +22,8 @@
         "backgroundColor": "#020617"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.mivida.serhacer"
+      "package": "com.mivida.serhacer",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"

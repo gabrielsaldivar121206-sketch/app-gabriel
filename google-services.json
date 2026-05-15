@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "262908882308",
+    "project_id": "appersonal-b538b",
+    "storage_bucket": "appersonal-b538b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:262908882308:android:88437c04d1c4bc293641d1",
+        "android_client_info": {
+          "package_name": "com.mivida.serhacer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBp0dXBhW429ThyjRNuWsKgigCAKzxDbl0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
