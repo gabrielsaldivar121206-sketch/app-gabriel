@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Dimensions, StyleSheet, Animated, Easing, Vibration, TextInput, KeyboardAvoidingView, Platform, AppState, Linking } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Sun, Moon, Code, Music, Activity, Sparkles, CheckCircle2, Dumbbell, Mic, BookOpen, Waves, Wind, Play, CircleDot, HeartPulse, Heart, Headphones, Plus, Gamepad2, Pencil, Zap, Clock, Brain, Infinity, Hand, Ear, Eye, Feather, SkipForward } from 'lucide-react-native';
+import { Sun, Moon, Code, Music, Activity, Sparkles, CheckCircle2, Dumbbell, Mic, BookOpen, Waves, Wind, Play, CircleDot, HeartPulse, Heart, Headphones, Plus, Gamepad2, Pencil, Zap, Clock, Brain, Infinity, Hand, Ear, Eye, Feather, SkipForward, SkipBack, X } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Svg, { Circle } from 'react-native-svg';
@@ -48,8 +48,9 @@ const AnimatedMissionCard = ({ mission, onPress, onDelete, onEdit, completedMiss
   const scale = useRef(new Animated.Value(1)).current;
   const deleteProgress = useRef(new Animated.Value(0)).current;
   const IconComp = mission.icon || Sparkles;
-  const isCompleted = completedMissions.includes(mission.title);
+  const isCompleted = completedMissions.includes(mission.id) || completedMissions.includes(mission.title);
   const lastTap = useRef(0);
+  const tapTimeout = useRef(null);
 
   const handleLongPress = () => {
     if (!mission.isCustom) return;
@@ -62,13 +63,12 @@ const AnimatedMissionCard = ({ mission, onPress, onDelete, onEdit, completedMiss
   const handlePress = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
+      clearTimeout(tapTimeout.current);
       if (mission.isCustom && onEdit) onEdit(mission);
     } else {
-      setTimeout(() => {
-        if (Date.now() - lastTap.current >= 300) {
-          Vibration.vibrate(10);
-          onPress();
-        }
+      tapTimeout.current = setTimeout(() => {
+        Vibration.vibrate(10);
+        onPress();
       }, 300);
     }
     lastTap.current = now;
@@ -332,6 +332,7 @@ const MainApp = () => {
   const [customMissions, setCustomMissions] = useState({ Dev: [] });
   const [isAddingMission, setIsAddingMission] = useState(false);
   const [editingMissionId, setEditingMissionId] = useState(null);
+  const [missionCategoryToSave, setMissionCategoryToSave] = useState(null);
   const [showRuedaVida, setShowRuedaVida] = useState(false);
   const [newMissionName, setNewMissionName] = useState('');
   const [newMissionTime, setNewMissionTime] = useState('');
@@ -340,6 +341,7 @@ const MainApp = () => {
   // Reminders
   const [reminders, setReminders] = useState([]);
   const [isAddingReminder, setIsAddingReminder] = useState(false);
+  const [editingReminderId, setEditingReminderId] = useState(null);
   const [newReminderText, setNewReminderText] = useState('');
   const [newReminderTime, setNewReminderTime] = useState('08:00');
   
@@ -348,6 +350,7 @@ const MainApp = () => {
   const [routineChecks, setRoutineChecks] = useState({});
 
   // States
+  const [dailyBattery, setDailyBattery] = useState(100);
   const [focusTask, setFocusTask] = useState(null); 
   const [focusTimeLeft, setFocusTimeLeft] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -387,9 +390,11 @@ const MainApp = () => {
     { title: 'XO (Only If You Say Yes)', artist: 'ENHYPEN', url: require('./assets/xo.m4a') },
   ];
   
-  const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(() => Math.floor(Math.random() * ENHYPEN_PLAYLIST.length));
   const audioRef = useRef(null);
   const [isQuickPlaying, setIsQuickPlaying] = useState(false);
+
+  const loadedTrackUrl = useRef(null);
 
   const toggleQuickPlay = async (audioSource, forcePlay = false) => {
     try {
@@ -397,13 +402,22 @@ const MainApp = () => {
         await audioRef.current.pauseAsync();
         setIsQuickPlaying(false);
       } else {
+        if (audioRef.current && !forcePlay && loadedTrackUrl.current === audioSource) {
+          const status = await audioRef.current.getStatusAsync();
+          if (status.isLoaded) {
+            await audioRef.current.playAsync();
+            setIsQuickPlaying(true);
+            return;
+          }
+        }
         if (audioRef.current) {
           await audioRef.current.stopAsync();
           await audioRef.current.unloadAsync();
         }
-        const source = typeof audioSource === 'string' ? { uri: audioSource } : audioSource;
+        const source = typeof audioSource === 'number' ? audioSource : (typeof audioSource === 'string' ? { uri: audioSource } : audioSource);
         const { sound } = await Audio.Sound.createAsync(source, { shouldPlay: true, isLooping: true });
         audioRef.current = sound;
+        loadedTrackUrl.current = audioSource;
         setIsQuickPlaying(true);
       }
     } catch (e) { console.log("Audio Error", e); }
@@ -414,6 +428,14 @@ const MainApp = () => {
     setCurrentTrackIndex(nextIndex);
     if (isQuickPlaying) {
       toggleQuickPlay(ENHYPEN_PLAYLIST[nextIndex].url, true);
+    }
+  };
+
+  const playPrevTrack = () => {
+    const prevIndex = (currentTrackIndex - 1 + ENHYPEN_PLAYLIST.length) % ENHYPEN_PLAYLIST.length;
+    setCurrentTrackIndex(prevIndex);
+    if (isQuickPlaying) {
+      toggleQuickPlay(ENHYPEN_PLAYLIST[prevIndex].url, true);
     }
   };
 
@@ -430,6 +452,7 @@ const MainApp = () => {
         
         let completedTodayList = [];
         let daysActive = new Set();
+        let todayTasks = [];
         
         querySnapshot.forEach((docSnap) => {
           const data = docSnap.data();
@@ -444,13 +467,30 @@ const MainApp = () => {
           if (data.tipo === 'Sentidos') { h_mente += 15; h_energia += 10; }
 
           if (isToday) {
-            if (data.tarea) completedTodayList.push(data.tarea);
+            if (data.tareaId) completedTodayList.push(data.tareaId);
+            else if (data.tarea) completedTodayList.push(data.tarea);
+            todayTasks.push({ ...data, time: docTime });
+            
             if (data.tipo === 'Refugio' || data.tipo === 'Zen') { t_mente += 20; t_energia += 10; }
             if (data.tipo === 'Música') { t_pasion += 25; t_energia += 15; }
             if (data.tipo === 'Cuerpo') { t_cuerpo += 30; t_energia += 15; }
             if (data.tipo === 'Sentidos') { t_mente += 15; t_energia += 10; }
           }
         });
+        
+        todayTasks.sort((a,b) => a.time - b.time);
+        let calculatedBattery = 100;
+        
+        todayTasks.forEach(task => {
+           if (task.tipo === 'Zen' || task.tipo === 'Refugio') calculatedBattery += 15;
+           else if (task.tipo === 'Sentidos') calculatedBattery += 5;
+           else if (task.tipo === 'Música') calculatedBattery -= 10;
+           else if (task.tipo === 'Cuerpo') calculatedBattery -= 15;
+           
+           calculatedBattery = Math.max(0, Math.min(100, calculatedBattery));
+        });
+        
+        setDailyBattery(calculatedBattery);
         
         // Calculate Streak
         const sortedDays = Array.from(daysActive).map(d => new Date(d).getTime()).sort((a,b) => b - a);
@@ -487,13 +527,20 @@ const MainApp = () => {
   };
 
   const getTabProgress = () => {
-    switch (activeTab) {
-      case 'Música': return dbStats.pasion;
-      case 'Cuerpo': return dbStats.cuerpo;
-      case 'Sentidos': return dbStats.mente;
-      case 'Zen': return dbStats.energia;
-      default: return dbStats.energia;
-    }
+    if (activeTab === 'Zen') return dbStats.energia;
+    
+    const currentStateKey = activeTab === 'Música' ? `Música_${musicSubTab}` : activeTab === 'Cuerpo' ? `Cuerpo_${bodySubTab}` : activeTab;
+    const tabMissions = customMissions[currentStateKey] || [];
+    const total = tabMissions.length;
+    
+    if (total === 0) return 0;
+
+    let completedCount = 0;
+    tabMissions.forEach(m => {
+       if (completedToday.includes(m.title)) completedCount++;
+    });
+    
+    return Math.floor((completedCount / total) * 100);
   };
 
   const fetchGratitudes = async () => {
@@ -532,16 +579,38 @@ const MainApp = () => {
   const [gratitudes, setGratitudes] = useState([]);
   
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const tabIndicatorAnim = useRef(new Animated.Value(0)).current; // 0: Música, 1: Cuerpo, 2: Sentidos, 3: Zen
   const focusAnim = useRef(new Animated.Value(0)).current;
   const heartbeatAnim = useRef(new Animated.Value(1)).current;
   const emergencyInterval = useRef(null);
 
+  const TABS = ['Música', 'Cuerpo', 'Sentidos', 'Zen'];
+
   const handleTabSwitch = (newTab) => {
     if (newTab === activeTab) return;
-    Vibration.vibrate(10);
-    Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+    Vibration.vibrate(20);
+    const newIndex = TABS.indexOf(newTab);
+    
+    // Animate Indicator
+    Animated.spring(tabIndicatorAnim, {
+      toValue: newIndex,
+      friction: 6,
+      tension: 40,
+      useNativeDriver: false
+    }).start();
+
+    // Animate out content
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 0, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.95, duration: 120, useNativeDriver: true })
+    ]).start(() => {
       setActiveTab(newTab);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 250, easing: Easing.out(Easing.ease), useNativeDriver: true }).start();
+      // Animate in content
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 300, easing: Easing.out(Easing.back(1.5)), useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 1, friction: 6, tension: 40, useNativeDriver: true })
+      ]).start();
     });
   };
 
@@ -549,10 +618,16 @@ const MainApp = () => {
     const currentSubTab = isBody ? bodySubTab : musicSubTab;
     if (newSubTab === currentSubTab) return;
     Vibration.vibrate(15);
-    Animated.timing(fadeAnim, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.98, duration: 100, useNativeDriver: true })
+    ]).start(() => {
       if (isBody) setBodySubTab(newSubTab);
       else setMusicSubTab(newSubTab);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 200, easing: Easing.out(Easing.ease), useNativeDriver: true }).start();
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 250, easing: Easing.out(Easing.back(1.5)), useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 1, friction: 7, tension: 40, useNativeDriver: true })
+      ]).start();
     });
   };
 
@@ -639,11 +714,12 @@ const MainApp = () => {
       if (db) {
         addDoc(collection(db, 'registros_bienestar'), {
           tipo: activeTab,
-          tarea: focusTask,
+          tarea: focusTask.title,
+          tareaId: focusTask.id || null,
           timestamp: serverTimestamp()
         }).then(() => fetchStats()).catch(() => {});
       }
-      setCompletedToday(prev => [...prev, focusTask]);
+      setCompletedToday(prev => [...prev, focusTask.id || focusTask.title]);
       setTimeout(() => {
         Animated.timing(focusAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
           setFocusTask(null);
@@ -661,14 +737,14 @@ const MainApp = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const startFocusMode = async (taskTitle, taskTimeText) => {
-    const timeMatch = taskTimeText.match(/\d+/);
+  const startFocusMode = async (mission) => {
+    const timeMatch = mission.sub.match(/\d+/);
     const amount = timeMatch ? parseInt(timeMatch[0]) : 25;
-    const isSeconds = taskTimeText.toLowerCase().includes('seg');
+    const isSeconds = mission.sub.toLowerCase().includes('seg');
     
     setFocusTimeLeft(isSeconds ? amount : amount * 60);
     setIsTimerRunning(false);
-    setFocusTask(taskTitle);
+    setFocusTask(mission);
     Animated.timing(focusAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   };
 
@@ -853,7 +929,9 @@ const MainApp = () => {
   const stateKey = activeTab === 'Música' ? `Música_${musicSubTab}` : activeTab === 'Cuerpo' ? `Cuerpo_${bodySubTab}` : activeTab;
   // Ensure array exists
   const safeCustomMissions = customMissions[stateKey] || [];
-  const allMissions = activeTab !== 'Zen' ? [...safeCustomMissions] : [];
+  const allMissions = [...safeCustomMissions];
+  const zenRituales = customMissions['Zen_Rituales'] || [];
+  const zenHobbies = customMissions['Zen_Hobbies'] || [];
   const filteredReminders = reminders.filter(r => r.actividad === stateKey);
 
   // Reminder functions
@@ -871,10 +949,18 @@ const MainApp = () => {
   const addReminder = async () => {
     if (!newReminderText.trim()) return;
     const reminderData = { texto: newReminderText, hora: newReminderTime, actividad: stateKey };
+    
     try {
-      if (db) {
-        const ref = await addDoc(collection(db, 'recordatorios'), { ...reminderData, createdAt: serverTimestamp() });
-        setReminders(prev => [...prev, { id: ref.id, ...reminderData }]);
+      if (editingReminderId) {
+        setReminders(prev => prev.map(r => r.id === editingReminderId ? { ...r, ...reminderData } : r));
+        if (db) {
+          updateDoc(doc(db, 'recordatorios', editingReminderId), reminderData);
+        }
+      } else {
+        if (db) {
+          const ref = await addDoc(collection(db, 'recordatorios'), { ...reminderData, createdAt: serverTimestamp() });
+          setReminders(prev => [...prev, { id: ref.id, ...reminderData }]);
+        }
       }
       // Schedule notification
       const [rH, rM] = newReminderTime.split(':').map(Number);
@@ -889,9 +975,11 @@ const MainApp = () => {
         });
       }
     } catch(e) { console.log('Reminder error', e); }
+    
     setNewReminderText('');
     setNewReminderTime('08:00');
     setIsAddingReminder(false);
+    setEditingReminderId(null);
   };
 
   const deleteReminder = async (id) => {
@@ -920,12 +1008,14 @@ const MainApp = () => {
   const handleAddMission = async () => {
     if (!newMissionName.trim() || !newMissionTime.trim()) return;
     
+    const finalStateKey = missionCategoryToSave || stateKey;
+    
     if (editingMissionId) {
        try {
          // Optimistic
          setCustomMissions(prev => ({
            ...prev,
-           [stateKey]: prev[stateKey].map(m => m.id === editingMissionId ? { ...m, title: newMissionName, sub: newMissionTime + (isNewMissionSeconds ? ' segs' : ' mins') } : m)
+           [finalStateKey]: (prev[finalStateKey] || []).map(m => m.id === editingMissionId ? { ...m, title: newMissionName, sub: newMissionTime + (isNewMissionSeconds ? ' segs' : ' mins') } : m)
          }));
          if (db) {
            updateDoc(doc(db, 'misiones_personalizadas', editingMissionId), {
@@ -940,7 +1030,7 @@ const MainApp = () => {
         sub: newMissionTime + (isNewMissionSeconds ? ' segs' : ' mins'),
         color: ThemeColor,
         isCustom: true,
-        stateKey: stateKey
+        stateKey: finalStateKey
       };
 
       try {
@@ -954,13 +1044,14 @@ const MainApp = () => {
 
       setCustomMissions(prev => ({
         ...prev,
-        [stateKey]: [ ...(prev[stateKey] || []), newMission ]
+        [finalStateKey]: [ ...(prev[finalStateKey] || []), newMission ]
       }));
     }
     
     setNewMissionName('');
     setNewMissionTime('');
     setEditingMissionId(null);
+    setMissionCategoryToSave(null);
     setIsAddingMission(false);
   };
 
@@ -996,14 +1087,22 @@ const MainApp = () => {
                 <Moon color="#A78BFA" size={16} strokeWidth={1.5} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.subGreetingText}>Tu energía actual está equilibrada.</Text>
+            <Text style={styles.subGreetingText}>
+              Batería Diaria: {dailyBattery}% {dailyBattery <= 20 ? '⚠️' : '⚡'}
+            </Text>
           </View>
           <View style={{ marginLeft: 16 }}>
              <CircularProgress size={54} strokeWidth={4} progress={getTabProgress()} color={ThemeColor} />
           </View>
         </BlurView>
 
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) }] }}>
+        <Animated.View style={{ 
+          opacity: fadeAnim, 
+          transform: [
+            { translateY: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [25, 0] }) },
+            { scale: scaleAnim }
+          ] 
+        }}>
           
           {/* Smart Suggestion Banner */}
           {activeTab !== 'Zen' && (
@@ -1083,13 +1182,62 @@ const MainApp = () => {
                 </BlurView>
               </View>
 
+              {/* Misiones Personalizadas (Zen) */}
+              <View style={{ marginBottom: 32 }}>
+                <Text style={[styles.sectionTitle, { paddingHorizontal: 20 }]}>Mis Misiones Zen</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carouselContainer}>
+                  <TouchableScale onPress={() => { setEditingMissionId(null); setIsAddingMission(true); }}>
+                    <View style={[styles.glassCard, { justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'transparent' }]}>
+                      <View style={[styles.iconCircle, { backgroundColor: 'rgba(255,255,255,0.1)', marginBottom: 12 }]}>
+                        <Plus color="white" size={24} strokeWidth={1.5} />
+                      </View>
+                      <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>Nueva Misión</Text>
+                    </View>
+                  </TouchableScale>
+
+                  {allMissions.map((mission) => (
+                    <AnimatedMissionCard 
+                      key={mission.id} 
+                      mission={mission}
+                      completedMissions={completedToday}
+                      onPress={() => {
+                        if (!completedToday.includes(mission.id) && !completedToday.includes(mission.title)) {
+                          startFocusMode(mission);
+                        }
+                      }}
+                      onDelete={handleDeleteMission}
+                      onEdit={(m) => {
+                         setNewMissionName(m.title);
+                         setNewMissionTime(m.sub.replace(/\D/g, ''));
+                         setIsNewMissionSeconds(m.sub.includes('segs'));
+                         setEditingMissionId(m.id);
+                         setIsAddingMission(true);
+                      }}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+
               {/* Zen Missions - Rituales */}
               <View style={{ marginBottom: 32 }}>
                 <Text style={[styles.sectionTitle, { paddingHorizontal: 20 }]}>Rituales de Conexión</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carouselContainer}>
-                  <AnimatedMissionCard mission={{ id: 'z1', title: 'Meditación', sub: '10 mins', icon: Sparkles, color: '#FDE047', isCustom: false }} onPress={() => startFocusMode('Meditación Guiada', '10 mins')} />
-                  <AnimatedMissionCard mission={{ id: 'z2', title: 'Journaling', sub: '15 mins', icon: BookOpen, color: '#F472B6', isCustom: false }} onPress={() => startFocusMode('Journaling', '15 mins')} />
-                  <AnimatedMissionCard mission={{ id: 'z3', title: 'Silencio Total', sub: '5 mins', icon: Moon, color: '#38BDF8', isCustom: false }} onPress={() => startFocusMode('Silencio Total', '5 mins')} />
+                  <TouchableScale onPress={() => { setEditingMissionId(null); setMissionCategoryToSave('Zen_Rituales'); setIsAddingMission(true); }}>
+                    <View style={[styles.glassCard, { justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'transparent' }]}>
+                      <View style={[styles.iconCircle, { backgroundColor: 'rgba(255,255,255,0.1)', marginBottom: 12 }]}>
+                        <Plus color="white" size={24} strokeWidth={1.5} />
+                      </View>
+                      <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>Nueva Misión</Text>
+                    </View>
+                  </TouchableScale>
+                  {zenRituales.map((mission) => (
+                    <AnimatedMissionCard 
+                      key={mission.id} mission={mission} completedMissions={completedToday}
+                      onPress={() => { if (!completedToday.includes(mission.id) && !completedToday.includes(mission.title)) startFocusMode(mission); }}
+                      onDelete={handleDeleteMission}
+                      onEdit={(m) => { setNewMissionName(m.title); setNewMissionTime(m.sub.replace(/\D/g, '')); setIsNewMissionSeconds(m.sub.includes('segs')); setEditingMissionId(m.id); setMissionCategoryToSave('Zen_Rituales'); setIsAddingMission(true); }}
+                    />
+                  ))}
                 </ScrollView>
               </View>
 
@@ -1097,9 +1245,22 @@ const MainApp = () => {
               <View style={{ marginBottom: 32 }}>
                 <Text style={[styles.sectionTitle, { paddingHorizontal: 20 }]}>Pasiones &amp; Hobbies</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carouselContainer}>
-                  <AnimatedMissionCard mission={{ id: 'h1', title: 'Videojuegos', sub: '30 mins', icon: Gamepad2, color: '#A78BFA', isCustom: false }} onPress={() => startFocusMode('Videojuegos', '30 mins')} />
-                  <AnimatedMissionCard mission={{ id: 'h2', title: 'Dibujar', sub: '20 mins', icon: Pencil, color: '#F472B6', isCustom: false }} onPress={() => startFocusMode('Sesion de Dibujo', '20 mins')} />
-                  <AnimatedMissionCard mission={{ id: 'h3', title: 'Escuchar Álbum', sub: 'Completo', icon: Headphones, color: '#38BDF8', isCustom: false }} onPress={() => startFocusMode('Escuchar Álbum', '45 mins')} />
+                  <TouchableScale onPress={() => { setEditingMissionId(null); setMissionCategoryToSave('Zen_Hobbies'); setIsAddingMission(true); }}>
+                    <View style={[styles.glassCard, { justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'transparent' }]}>
+                      <View style={[styles.iconCircle, { backgroundColor: 'rgba(255,255,255,0.1)', marginBottom: 12 }]}>
+                        <Plus color="white" size={24} strokeWidth={1.5} />
+                      </View>
+                      <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>Nueva Misión</Text>
+                    </View>
+                  </TouchableScale>
+                  {zenHobbies.map((mission) => (
+                    <AnimatedMissionCard 
+                      key={mission.id} mission={mission} completedMissions={completedToday}
+                      onPress={() => { if (!completedToday.includes(mission.id) && !completedToday.includes(mission.title)) startFocusMode(mission); }}
+                      onDelete={handleDeleteMission}
+                      onEdit={(m) => { setNewMissionName(m.title); setNewMissionTime(m.sub.replace(/\D/g, '')); setIsNewMissionSeconds(m.sub.includes('segs')); setEditingMissionId(m.id); setMissionCategoryToSave('Zen_Hobbies'); setIsAddingMission(true); }}
+                    />
+                  ))}
                 </ScrollView>
               </View>
 
@@ -1188,7 +1349,7 @@ const MainApp = () => {
                     <View style={[styles.iconCircle, { backgroundColor: 'rgba(255,255,255,0.1)', marginBottom: 12 }]}>
                       <Plus color="white" size={24} strokeWidth={1.5} />
                     </View>
-                    <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>Nueva Tarea</Text>
+                    <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>Nueva Misión</Text>
                   </View>
                 </TouchableScale>
 
@@ -1197,7 +1358,15 @@ const MainApp = () => {
                     key={mission.id} 
                     mission={mission}
                     completedMissions={completedToday}
-                    onPress={() => startFocusMode(mission.title, mission.sub)}
+                    onPress={() => {
+                      if (!completedToday.includes(mission.id) && !completedToday.includes(mission.title)) {
+                        if (dailyBattery <= 20 && activeTab !== 'Zen') {
+                          alert('⚠️ Batería al límite. Debes hacer una actividad Zen para recargar tu energía antes de continuar.');
+                          return;
+                        }
+                        startFocusMode(mission);
+                      }
+                    }}
                     onDelete={handleDeleteMission}
                     onEdit={(m) => {
                        setNewMissionName(m.title);
@@ -1223,14 +1392,18 @@ const MainApp = () => {
                         <Text style={styles.musicSub}>{ENHYPEN_PLAYLIST[currentTrackIndex].artist} · Playlist</Text>
                       </View>
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                      <TouchableOpacity onPress={(e) => { e.stopPropagation(); playNextTrack(); }} style={{ padding: 8 }}>
-                        <SkipForward color="rgba(255,255,255,0.5)" size={20} />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <TouchableOpacity onPress={(e) => { e.stopPropagation(); playPrevTrack(); }} style={{ padding: 8 }}>
+                        <SkipBack color="rgba(255,255,255,0.5)" size={20} />
                       </TouchableOpacity>
                       
                       <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isQuickPlaying ? 'transparent' : ThemeColor, borderWidth: isQuickPlaying ? 2 : 0, borderColor: ThemeColor, alignItems: 'center', justifyContent: 'center' }}>
                         {isQuickPlaying ? <View style={{ width: 12, height: 12, backgroundColor: ThemeColor, borderRadius: 2 }} /> : <Play color="#020617" size={16} strokeWidth={2.5} />}
                       </View>
+
+                      <TouchableOpacity onPress={(e) => { e.stopPropagation(); playNextTrack(); }} style={{ padding: 8 }}>
+                        <SkipForward color="rgba(255,255,255,0.5)" size={20} />
+                      </TouchableOpacity>
                     </View>
                   </BlurView>
                 </TouchableScale>
@@ -1257,15 +1430,6 @@ const MainApp = () => {
 
 
 
-              {/* Wellness Tip */}
-              <View style={{ paddingHorizontal: 20, marginBottom: 24 }}>
-                <BlurView intensity={20} tint="dark" style={{ borderRadius: 20, padding: 16, borderWidth: 1, borderColor: 'rgba(253,224,71,0.15)', overflow: 'hidden', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(253,224,71,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                    <Sparkles color="#FDE047" size={16} />
-                  </View>
-                  <Text style={{ color: '#FDE047', fontSize: 13, fontWeight: '500', flex: 1 }}>{currentWellnessTip}</Text>
-                </BlurView>
-              </View>
 
               {/* Micro-acciones (Sensoriales y Tácticas) */}
               <View style={{ marginBottom: 32 }}>
@@ -1320,8 +1484,18 @@ const MainApp = () => {
                 {filteredReminders.map((r) => (
                   <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)', gap: 12 }}>
                     <Clock color={ThemeColor} size={16} />
-                    <Text style={{ color: 'white', fontSize: 14, flex: 1, fontWeight: '500' }}>{r.texto}</Text>
-                    <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '600' }}>{r.hora}</Text>
+                    <TouchableOpacity 
+                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                      onPress={() => {
+                         setEditingReminderId(r.id);
+                         setNewReminderText(r.texto);
+                         setNewReminderTime(r.hora);
+                         setIsAddingReminder(true);
+                      }}
+                    >
+                      <Text style={{ color: 'white', fontSize: 14, flex: 1, fontWeight: '500' }}>{r.texto}</Text>
+                      <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '600' }}>{r.hora}</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => deleteReminder(r.id)} style={{ padding: 4 }}>
                       <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: '700' }}>✕</Text>
                     </TouchableOpacity>
@@ -1471,7 +1645,7 @@ const MainApp = () => {
               </View>
 
               <TouchableOpacity onPress={handleAddMission} style={[styles.recordBtnActive, { backgroundColor: ThemeColor, width: '100%', height: 56, borderRadius: 20, marginTop: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}>
-                <Text style={{ color: '#020617', fontWeight: '800', fontSize: 16 }}>Añadir a la Agenda</Text>
+                <Text style={{ color: '#020617', fontWeight: '800', fontSize: 16 }}>Añadir Misión</Text>
               </TouchableOpacity>
             </BlurView>
           </View>
@@ -1482,9 +1656,14 @@ const MainApp = () => {
       {focusTask && (
         <Animated.View style={[styles.focusOverlay, { opacity: focusAnim }]}>
           <LinearGradient colors={['#0F172A', '#020617']} style={StyleSheet.absoluteFillObject} />
+          
+          <TouchableOpacity onPress={() => { setFocusTask(null); setIsTimerRunning(false); }} style={{ position: 'absolute', top: 60, left: 24, zIndex: 10, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+            <X color="white" size={24} />
+          </TouchableOpacity>
+
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ color: '#64748B', fontSize: 14, fontWeight: '600', letterSpacing: 2, marginBottom: 16 }}>ENFOQUE PROFUNDO</Text>
-            <Text style={{ color: 'white', fontSize: 24, fontWeight: '800', marginBottom: 40 }}>{focusTask}</Text>
+            <Text style={{ color: 'white', fontSize: 24, fontWeight: '800', marginBottom: 40 }}>{focusTask.title}</Text>
             
             <TouchableScale onPress={() => setIsTimerRunning(!isTimerRunning)}>
               <View style={[styles.timerCircle, isTimerRunning && { borderColor: ThemeColor }]}>
@@ -1506,30 +1685,72 @@ const MainApp = () => {
         <TouchableScale 
           onPress={triggerEmergencyAnchor} 
           onLongPress={() => setShowRuedaVida(true)}
-          style={{ position: 'absolute', top: -28, zIndex: 10 }}
+          style={{ position: 'absolute', top: -32, zIndex: 10 }}
         >
-          <LinearGradient colors={['#F472B6', '#C084FC']} start={{x:0,y:0}} end={{x:1,y:1}} style={styles.centerHeartGradient}>
+          <Animated.View style={[styles.centerHeartGradient, { transform: [{ scale: heartbeatAnim }] }]}>
+            <LinearGradient colors={['#F472B6', '#C084FC']} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFillObject} />
             <Infinity color="white" size={26} strokeWidth={2.5} />
-          </LinearGradient>
+          </Animated.View>
         </TouchableScale>
 
         <View style={styles.floatingTabBar}>
           <BlurView intensity={90} tint="dark" style={[StyleSheet.absoluteFillObject, { borderRadius: 28 }]} />
+
+          {/* Animated Sliding Background Bubble */}
+          <Animated.View style={{
+            position: 'absolute',
+            left: 6, // matching paddingHorizontal: 6
+            width: (width - 52) / 4,
+            height: '100%',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: [{
+              translateX: tabIndicatorAnim.interpolate({
+                inputRange: [0, 1, 2, 3],
+                outputRange: [0, (width - 52) / 4, ((width - 52) / 4) * 2, ((width - 52) / 4) * 3]
+              })
+            }]
+          }}>
+            {/* The glowing dot under the active tab */}
+            <View style={{ position: 'absolute', bottom: 4, width: 24, height: 4, borderRadius: 2, backgroundColor: 'white', shadowColor: 'white', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 6 }} />
+          </Animated.View>
 
           {[  
             { key: 'Música', icon: Music, color: '#A78BFA' },
             { key: 'Cuerpo', icon: Dumbbell, color: '#38BDF8' },
             { key: 'Sentidos', icon: Hand, color: '#14B8A6' },
             { key: 'Zen', icon: Sparkles, color: '#FDE047' },
-          ].map(({ key, icon: Icon, color }) => {
+          ].map(({ key, icon: Icon, color }, index) => {
             const isActive = activeTab === key;
+            const indicatorVal = tabIndicatorAnim;
+            const translateY = indicatorVal.interpolate({
+              inputRange: [index - 1, index, index + 1],
+              outputRange: [0, -14, 0],
+              extrapolate: 'clamp'
+            });
+            const scale = indicatorVal.interpolate({
+              inputRange: [index - 1, index, index + 1],
+              outputRange: [1, 1.25, 1],
+              extrapolate: 'clamp'
+            });
+            const activeOpacity = indicatorVal.interpolate({
+              inputRange: [index - 1, index, index + 1],
+              outputRange: [0, 1, 0],
+              extrapolate: 'clamp'
+            });
+
             return (
-              <TouchableScale key={key} onPress={() => handleTabSwitch(key)} style={{ flex: 1 }}>
-                <View style={[styles.navItem, isActive && styles.navItemActive]}>
-                  {isActive && <LinearGradient colors={[`${color}25`, `${color}08`]} style={[StyleSheet.absoluteFillObject, { borderRadius: 20 }]} />}
-                  <Icon color={isActive ? color : '#475569'} size={20} strokeWidth={isActive ? 2.2 : 1.3} />
-                  {isActive && <Text style={[styles.navLabel, { color }]}>{key}</Text>}
-                </View>
+              <TouchableScale key={key} onPress={() => handleTabSwitch(key)} style={{ flex: 1, height: 60, alignItems: 'center', justifyContent: 'center' }}>
+                <Animated.View style={{
+                  transform: [{ translateY }, { scale }],
+                  width: 48, height: 48, borderRadius: 24,
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: color, borderRadius: 24, opacity: Animated.multiply(activeOpacity, 0.2) }]} />
+                  <Animated.View style={{ shadowColor: color, shadowOffset: { width: 0, height: 6 }, shadowOpacity: Animated.multiply(activeOpacity, 0.5), shadowRadius: 10 }}>
+                    <Icon color={isActive ? color : '#64748B'} size={22} strokeWidth={isActive ? 2.5 : 1.5} />
+                  </Animated.View>
+                </Animated.View>
               </TouchableScale>
             );
           })}
